@@ -1,13 +1,21 @@
 mod datatypes;
 mod ws;
+mod backend;
 
 use std::net::SocketAddr;
+use std::sync::LazyLock;
 
 use axum::{routing::any, Router};
-use tokio::sync::{broadcast, mpsc};
+use once_cell::sync::OnceCell;
+use tokio::sync::broadcast::Sender;
+use tokio::sync::{broadcast, mpsc, Mutex};
 
+use crate::backend::recv_loop;
 use crate::datatypes::AppState;
 use crate::ws::ws_route;
+
+static SENDER: OnceCell<Mutex<Sender<String>>> = OnceCell::new();
+static CONNECTED: LazyLock<Mutex<i32>> = LazyLock::new(|| Mutex::new(0));
 
 #[tokio::main]
 async fn main() {
@@ -18,7 +26,11 @@ async fn main() {
         tx: sender_tx,
         rx_spawner: receiver_tx.clone()
     };
+
+    SENDER.set(Mutex::new(receiver_tx)).unwrap();
     
+    tokio::spawn(recv_loop(sender_rx));
+
     let app = Router::new()
         .route("/ws", any(ws_route))
         .with_state(state);
